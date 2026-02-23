@@ -1,0 +1,7 @@
+# Blue Team Toolkit — Python Dependencies
+# ==========================================
+# All tools are built on Python 3 standard library.
+# No external packages required for core functionality.
+#
+# Optional: If you want to use AlienVault OTX with the official SDK:
+# OTXv2>=1.5.12
