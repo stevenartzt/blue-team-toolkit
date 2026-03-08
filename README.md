@@ -5,7 +5,7 @@
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/stevenartzt/blue-team-toolkit/pulls)
 [![Maintenance](https://img.shields.io/badge/Maintained-yes-green.svg)](https://github.com/stevenartzt/blue-team-toolkit)
 
-A collection of practical blue team security tools for log analysis, SSL/TLS auditing, threat intelligence aggregation, and file integrity monitoring. Built for defenders who need real tools, not toy scripts.
+A collection of practical security tools for blue team defense and offensive reconnaissance. Log analysis, SSL/TLS auditing, threat intelligence, file integrity monitoring, port scanning, web vulnerability assessment, subdomain enumeration, and password auditing. Built for security professionals who need real tools, not toy scripts.
 
 **Minimal dependencies. Maximum utility. All Python 3 stdlib where possible.**
 
@@ -19,6 +19,10 @@ A collection of practical blue team security tools for log analysis, SSL/TLS aud
 | [`ssl_auditor.py`](#-ssltls-auditor) | Audit domain TLS configuration | Cert validation, protocol probing, cipher analysis, HSTS |
 | [`threat_intel.py`](#-threat-intel-aggregator) | Aggregate IOCs from public feeds | CISA KEV, abuse.ch, AlienVault OTX, cross-referencing |
 | [`fim.py`](#-file-integrity-monitor) | Monitor critical file changes | Hash baselines, permission tracking, cron-friendly |
+| [`port_scanner.py`](#-port-scanner) | Fast TCP port scanner | Service detection, CIDR support, 500 threads, banner grabbing |
+| [`web_scanner.py`](#-web-scanner) | Web vulnerability scanner | Security headers, SSL audit, directory brute, fingerprinting |
+| [`subdomain_enum.py`](#-subdomain-enumerator) | Subdomain discovery | CT logs, DNS bruteforce, wildcard detection, live verification |
+| [`password_audit.py`](#-password-auditor) | Password strength analyzer | Shadow file audit, wordlist cracking, policy compliance |
 
 ---
 
@@ -360,6 +364,133 @@ sudo python3 fim.py --init --algorithm sha512
 
 ---
 
+## 🔍 Port Scanner
+
+Fast multi-threaded TCP port scanner with service detection and banner grabbing. Supports CIDR notation for network ranges.
+
+### Usage
+
+```bash
+# Scan top-20 ports
+python3 port_scanner.py 192.168.1.1
+
+# Scan specific ports on subnet
+python3 port_scanner.py 192.168.1.0/24 -p 22,80,443
+
+# Fast scan with 200 threads
+python3 port_scanner.py 10.0.0.1 -p 1-1000 -t 200
+
+# Use presets (web, database, mail, file, remote)
+python3 port_scanner.py target.com --preset web
+
+# JSON output
+python3 port_scanner.py 192.168.1.1 --format json -o scan.json
+```
+
+### Features
+
+- **Multi-threaded:** Up to 500 concurrent connections
+- **Service detection:** Banner grabbing with signature matching
+- **CIDR support:** Scan entire subnets (up to /16)
+- **Presets:** top-20, top-100, web, database, mail, file, remote
+- **Output formats:** Text, JSON, CSV
+
+---
+
+## 🌐 Web Scanner
+
+Web vulnerability scanner for security headers, SSL/TLS configuration, cookie security, sensitive file detection, and directory discovery.
+
+### Usage
+
+```bash
+# Basic scan (headers, SSL, cookies, fingerprinting)
+python3 web_scanner.py https://example.com
+
+# Full scan including sensitive path detection
+python3 web_scanner.py https://target.com --full
+
+# Directory bruteforce with custom wordlist
+python3 web_scanner.py https://target.com --dirbrute -w wordlist.txt
+
+# JSON output
+python3 web_scanner.py https://target.com --format json -o report.json
+```
+
+### What It Checks
+
+- **Security headers:** HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy
+- **Information leakage:** Server, X-Powered-By, X-AspNet-Version headers
+- **SSL/TLS:** Certificate validity, protocol versions, weak ciphers
+- **Cookies:** Secure, HttpOnly, SameSite flags
+- **Sensitive paths:** .git, .env, backups, admin panels, phpinfo
+- **Technology fingerprinting:** CMS (WordPress, Drupal, etc.), frameworks
+
+---
+
+## 🔎 Subdomain Enumerator
+
+Discover subdomains through Certificate Transparency logs and DNS bruteforce. Supports wildcard detection and live host verification.
+
+### Usage
+
+```bash
+# CT log search (default)
+python3 subdomain_enum.py example.com
+
+# CT + DNS bruteforce
+python3 subdomain_enum.py example.com --dns-brute
+
+# With custom wordlist and live verification
+python3 subdomain_enum.py example.com --dns-brute -w subs.txt --verify
+
+# Full enumeration (all methods + verification)
+python3 subdomain_enum.py example.com --all --format json -o results.json
+```
+
+### Features
+
+- **Certificate Transparency:** Searches crt.sh for historical certificates
+- **DNS bruteforce:** Built-in wordlist or custom
+- **Wildcard detection:** Identifies and filters wildcard DNS
+- **Live verification:** HTTP/HTTPS probing with redirect detection
+- **Output formats:** Text, JSON, CSV
+
+---
+
+## 🔐 Password Auditor
+
+Analyze password strength and audit shadow files for weak passwords. Includes wordlist-based cracking, policy compliance checking, and entropy calculation.
+
+### Usage
+
+```bash
+# Analyze password strength
+python3 password_audit.py --analyze "MyP@ssw0rd!"
+
+# Check password against policy
+python3 password_audit.py --policy-check "password123"
+
+# Audit shadow file (requires root)
+sudo python3 password_audit.py --shadow /etc/shadow
+
+# Audit with custom wordlist
+sudo python3 password_audit.py --shadow /etc/shadow -w rockyou.txt
+
+# JSON output
+sudo python3 password_audit.py --shadow /etc/shadow --format json -o audit.json
+```
+
+### Features
+
+- **Strength analysis:** Entropy calculation, pattern detection, policy compliance
+- **Shadow auditing:** Parse /etc/shadow, detect weak hashes, find password reuse
+- **Wordlist cracking:** Test against common passwords or custom wordlist
+- **Policy checking:** Length, complexity, character requirements
+- **Detection:** Keyboard patterns, leet-speak, common words, dates
+
+---
+
 ## 📦 Installation
 
 ```bash
@@ -388,7 +519,11 @@ blue-team-toolkit/
 ├── log_analyzer.py        # Log analysis tool
 ├── ssl_auditor.py         # SSL/TLS auditing tool
 ├── threat_intel.py        # Threat intel aggregator
-└── fim.py                 # File integrity monitor
+├── fim.py                 # File integrity monitor
+├── port_scanner.py        # TCP port scanner
+├── web_scanner.py         # Web vulnerability scanner
+├── subdomain_enum.py      # Subdomain enumerator
+└── password_audit.py      # Password auditor
 ```
 
 ---
