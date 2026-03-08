@@ -42,15 +42,14 @@ FEEDS = {
     },
     "urlhaus_recent": {
         "name": "abuse.ch URLhaus (Recent URLs)",
-        "url": "https://urlhaus-api.abuse.ch/v1/urls/recent/limit/100/",
-        "type": "json_post",
+        "url": "https://urlhaus.abuse.ch/downloads/json_recent/",
+        "type": "json_urlhaus",
         "description": "Recently reported malicious URLs",
     },
     "threatfox_iocs": {
         "name": "abuse.ch ThreatFox (Recent IOCs)",
-        "url": "https://threatfox-api.abuse.ch/api/v1/",
-        "type": "json_post",
-        "post_data": '{"query": "get_iocs", "days": 7}',
+        "url": "https://threatfox.abuse.ch/export/json/recent/",
+        "type": "json_threatfox",
         "description": "Recent IOCs from ThreatFox (IPs, domains, hashes)",
     },
     "feodo_blocklist": {
@@ -192,30 +191,55 @@ def parse_cisa_kev(raw: bytes) -> List[IOC]:
 
 
 def parse_urlhaus_recent(raw: bytes) -> List[IOC]:
-    """Parse abuse.ch URLhaus recent URLs."""
+    """Parse abuse.ch URLhaus recent URLs (json_recent download format)."""
     iocs = []
     try:
         data = json.loads(raw)
-        urls = data if isinstance(data, list) else data.get("urls", [])
-        for entry in urls:
-            url = entry.get("url", "")
-            threat = entry.get("threat", "")
-            status = entry.get("url_status", "")
-            tags = entry.get("tags") or []
-            date_added = entry.get("date_added", "")
+        # New format: dict of id -> [entry] (from /downloads/json_recent/)
+        if isinstance(data, dict):
+            for entry_id, entries in data.items():
+                if not isinstance(entries, list):
+                    continue
+                for entry in entries:
+                    url = entry.get("url", "")
+                    threat = entry.get("threat", "")
+                    status = entry.get("url_status", "")
+                    tags = entry.get("tags") or []
+                    date_added = entry.get("dateadded", "")
 
-            if status == "offline":
-                continue  # Skip offline URLs
+                    if status == "offline":
+                        continue  # Skip offline URLs
 
-            iocs.append(IOC(
-                ioc_type="url",
-                value=url,
-                source="URLhaus",
-                description=f"Threat: {threat}" if threat else "Malicious URL",
-                severity="HIGH",
-                tags=tags if isinstance(tags, list) else [],
-                timestamp=date_added,
-            ))
+                    iocs.append(IOC(
+                        ioc_type="url",
+                        value=url,
+                        source="URLhaus",
+                        description=f"Threat: {threat}" if threat else "Malicious URL",
+                        severity="HIGH",
+                        tags=tags if isinstance(tags, list) else [],
+                        timestamp=date_added,
+                    ))
+        # Legacy format: list of entries
+        elif isinstance(data, list):
+            for entry in data:
+                url = entry.get("url", "")
+                threat = entry.get("threat", "")
+                status = entry.get("url_status", "")
+                tags = entry.get("tags") or []
+                date_added = entry.get("date_added", entry.get("dateadded", ""))
+
+                if status == "offline":
+                    continue
+
+                iocs.append(IOC(
+                    ioc_type="url",
+                    value=url,
+                    source="URLhaus",
+                    description=f"Threat: {threat}" if threat else "Malicious URL",
+                    severity="HIGH",
+                    tags=tags if isinstance(tags, list) else [],
+                    timestamp=date_added,
+                ))
     except (json.JSONDecodeError, KeyError) as e:
         print(f"  [!] Failed to parse URLhaus: {e}", file=sys.stderr)
 
@@ -223,49 +247,89 @@ def parse_urlhaus_recent(raw: bytes) -> List[IOC]:
 
 
 def parse_threatfox_iocs(raw: bytes) -> List[IOC]:
-    """Parse abuse.ch ThreatFox IOCs."""
+    """Parse abuse.ch ThreatFox IOCs (export/json/recent format)."""
     iocs = []
     try:
         data = json.loads(raw)
-        if data.get("query_status") != "ok":
-            return iocs
+        
+        # New format: dict of id -> [entry] (from /export/json/recent/)
+        if isinstance(data, dict) and "query_status" not in data:
+            for entry_id, entries in data.items():
+                if not isinstance(entries, list):
+                    continue
+                for entry in entries:
+                    ioc_value = entry.get("ioc_value", entry.get("ioc", ""))
+                    ioc_type_raw = entry.get("ioc_type", "")
+                    threat = entry.get("threat_type", "")
+                    malware = entry.get("malware_printable", "")
+                    confidence = entry.get("confidence_level", 0)
+                    tags_raw = entry.get("tags") or ""
+                    tags = tags_raw.split(",") if isinstance(tags_raw, str) else (tags_raw or [])
+                    first_seen = entry.get("first_seen_utc", "")
+                    reference = entry.get("reference", "")
 
-        for entry in data.get("data", []):
-            ioc_value = entry.get("ioc", "")
-            ioc_type_raw = entry.get("ioc_type", "")
-            threat = entry.get("threat_type", "")
-            malware = entry.get("malware_printable", "")
-            confidence = entry.get("confidence_level", 0)
-            tags = entry.get("tags") or []
-            first_seen = entry.get("first_seen_utc", "")
-            reference = entry.get("reference", "")
+                    # Map ThreatFox types to our types
+                    type_map = {
+                        "ip:port": "ip",
+                        "domain": "domain",
+                        "url": "url",
+                        "md5_hash": "hash",
+                        "sha256_hash": "hash",
+                    }
+                    ioc_type = type_map.get(ioc_type_raw, "other")
 
-            # Map ThreatFox types to our types
-            type_map = {
-                "ip:port": "ip",
-                "domain": "domain",
-                "url": "url",
-                "md5_hash": "hash",
-                "sha256_hash": "hash",
-            }
-            ioc_type = type_map.get(ioc_type_raw, "other")
+                    # Strip port from ip:port
+                    if ioc_type == "ip" and ":" in ioc_value:
+                        ioc_value = ioc_value.split(":")[0]
 
-            # Strip port from ip:port
-            if ioc_type == "ip" and ":" in ioc_value:
-                ioc_value = ioc_value.split(":")[0]
+                    severity = "HIGH" if confidence >= 75 else "MEDIUM"
 
-            severity = "HIGH" if confidence >= 75 else "MEDIUM"
+                    iocs.append(IOC(
+                        ioc_type=ioc_type,
+                        value=ioc_value,
+                        source="ThreatFox",
+                        description=f"{threat}: {malware}" if malware else threat,
+                        severity=severity,
+                        tags=[t.strip() for t in tags if t.strip()],
+                        timestamp=first_seen,
+                        reference=reference or "",
+                    ))
+        # Legacy API format
+        elif isinstance(data, dict) and data.get("query_status") == "ok":
+            for entry in data.get("data", []):
+                ioc_value = entry.get("ioc", "")
+                ioc_type_raw = entry.get("ioc_type", "")
+                threat = entry.get("threat_type", "")
+                malware = entry.get("malware_printable", "")
+                confidence = entry.get("confidence_level", 0)
+                tags = entry.get("tags") or []
+                first_seen = entry.get("first_seen_utc", "")
+                reference = entry.get("reference", "")
 
-            iocs.append(IOC(
-                ioc_type=ioc_type,
-                value=ioc_value,
-                source="ThreatFox",
-                description=f"{threat}: {malware}" if malware else threat,
-                severity=severity,
-                tags=tags if isinstance(tags, list) else [],
-                timestamp=first_seen,
-                reference=reference or "",
-            ))
+                type_map = {
+                    "ip:port": "ip",
+                    "domain": "domain",
+                    "url": "url",
+                    "md5_hash": "hash",
+                    "sha256_hash": "hash",
+                }
+                ioc_type = type_map.get(ioc_type_raw, "other")
+
+                if ioc_type == "ip" and ":" in ioc_value:
+                    ioc_value = ioc_value.split(":")[0]
+
+                severity = "HIGH" if confidence >= 75 else "MEDIUM"
+
+                iocs.append(IOC(
+                    ioc_type=ioc_type,
+                    value=ioc_value,
+                    source="ThreatFox",
+                    description=f"{threat}: {malware}" if malware else threat,
+                    severity=severity,
+                    tags=tags if isinstance(tags, list) else [],
+                    timestamp=first_seen,
+                    reference=reference or "",
+                ))
     except (json.JSONDecodeError, KeyError) as e:
         print(f"  [!] Failed to parse ThreatFox: {e}", file=sys.stderr)
 
